@@ -1,6 +1,6 @@
 pipeline {
     agent any
-
+//komentarz pod commita
     stages {
         stage('1. Pobieranie repo') {
             steps {
