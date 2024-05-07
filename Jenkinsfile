@@ -1,6 +1,6 @@
 pipeline {
     agent any
-//komentarz pod commita
+
     stages {
         stage('1. Pobieranie repo') {
             steps {
@@ -13,7 +13,7 @@ pipeline {
         stage('2. Budowanie aplikacji') {
             steps {
                 script {
-                    docker.build("spring-build", "-f Dockerfile_build .")
+                    docker.build("petclinic-app:${env.BUILD_NUMBER}", "-f Dockerfile_build .")
                 }
             }
         }
@@ -21,26 +21,34 @@ pipeline {
         stage('3. Testowanie aplikacji') {
             steps {
                 script {
-                    docker.build("spring-test", "-f Dockerfile_test .")
+                   docker.build("petclinic-test:${env.BUILD_NUMBER}", "-f Dockerfile_test .")
                 }
             }
         }
 
-        stage('4. Deploy kontenerów') {
+        stage('4. Deploy & publish') {
             steps {
                 script {
                     try {
-                        def TIMESTAMP = sh(script: 'date +%Y%m%d%H%M%S', returnStdout: true).trim()
-                        env.TIMESTAMP = TIMESTAMP
-                        def buildContainerId = docker.build("spring-build", "-f Dockerfile_build .").id
-                        def testContainerId = docker.build("spring-test", "-f Dockerfile_test .").id
-                        sh "docker run -d --name build${TIMESTAMP} ${buildContainerId}"
-                        sh "docker run -d --name test${TIMESTAMP} ${testContainerId}"
-                        sh "docker logs build${TIMESTAMP} > build_log.txt"
-                        sh "docker logs test${TIMESTAMP} > test_log.txt"
-                        sh "docker stop build${TIMESTAMP} test${TIMESTAMP}"
-                        sh "tar -czf Artifact_${TIMESTAMP}.tar.gz build_log.txt test_log.txt"
-                        archiveArtifacts artifacts: "Artifact_${TIMESTAMP}.tar.gz", onlyIfSuccessful: true
+                      
+                        
+                        // Usuń istniejący kontener o nazwie "petclinic-app", jeśli istnieje 
+                        sh "docker rm -f petclinic-app || true"
+                        
+                        // Uruchomienie kontenera z aplikacją
+                        docker.image("petclinic-app:${env.BUILD_NUMBER}").run("-d --name petclinic-app -p 8080:8080")
+
+                        // Smoke testy
+                        sh "curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/"
+                        
+                        // Eksportuj kontener do pliku tar
+                        sh "docker save petclinic-app:${env.BUILD_NUMBER} -o petclinic-app-${env.BUILD_NUMBER}.tar"
+        
+                        // Archiwizacja artefaktu
+                        archiveArtifacts artifacts: "petclinic-app-${env.BUILD_NUMBER}.tar", onlyIfSuccessful: true
+
+                        // Publikacja artefaktu
+                        stash includes: "petclinic-app-${env.BUILD_NUMBER}.tar", name: "petclinic-app-${env.BUILD_NUMBER}"
                     } 
                     catch (Exception e) {
                         currentBuild.result = 'FAILURE'
@@ -50,4 +58,4 @@ pipeline {
             }
         }
     }
-}
+}//komentarz
